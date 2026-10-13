@@ -22,16 +22,39 @@ manualRows.forEach(r=>r.unit=initialUnit);items.forEach(x=>x.unit=initialUnit);
 function saveManual(){localStorage.setItem(ROW_KEY,JSON.stringify(manualRows));}
 function warn(message){$('entryError').textContent=message;$('entryError').classList.remove('hidden');}
 function hideWarn(){$('entryError').classList.add('hidden')}
+function refreshHighlights(){
+  const valid=manualRows.map((r,i)=>({...r,index:i,qtyN:parse(r.qty),priceN:parse(r.price)})).filter(r=>r.qtyN>0&&r.priceN>0);
+  const unit=$('globalUnit').value;
+  const comparable=valid.length>=2&&valid.every(r=>r.unit===unit);
+  const ranked=comparable?valid.map(r=>({...r,perUnit:r.priceN/(r.qtyN*U[unit][1])*U[unit][3]})).sort((a,b)=>a.perUnit-b.perUnit):[];
+  const win=ranked[0],expensive=ranked[ranked.length-1];
+  const distinct=win&&expensive&&expensive.perUnit-win.perUnit>1e-8;
+  for(const row of manualRows){
+    const card=$('manualRows').querySelector('[data-row="'+row.rowId+'"]');
+    if(!card)continue;
+    const qty=parse(row.qty),price=parse(row.price);
+    const unitLine=card.querySelector('.manual-unitprice');
+    if(qty>0&&price>0){const n=price/(qty*U[unit][1])*U[unit][3];unitLine.innerHTML='<span>Цена за '+(unit==='шт'?'штуку':'1 '+U[unit][2])+'</span><strong>'+fmt(n)+' ₽</strong>';unitLine.classList.remove('hidden');}
+    else{unitLine.innerHTML='';unitLine.classList.add('hidden');}
+    const isWinner=!!distinct&&win.rowId===row.rowId;
+    card.classList.toggle('winner',isWinner);
+    const reward=card.querySelector('.winner-reward');
+    if(isWinner){
+      const pct=(1-win.perUnit/expensive.perUnit)*100;
+      const rub=(expensive.perUnit-win.perUnit)*win.qtyN*U[unit][1]/U[unit][3];
+      reward.innerHTML='<b>✦ Этот товар выгоднее!</b><div class="reward-grid"><div><div class="reward-value">'+fmt(pct)+'%</div><div class="reward-hint">Дешевле за '+(unit==='шт'?'штуку':U[unit][2])+'</div></div><div><div class="reward-value">'+fmt(rub)+' ₽</div><div class="reward-hint">Экономия на этой упаковке</div></div></div><div class="reward-foot">По сравнению с товаром №'+(expensive.index+1)+' при одинаковом количестве.</div>';
+    }
+  }
+}
 function renderManual(){
   $('globalUnit').value=manualRows[0]?.unit||'г';
   const photos=items.filter(x=>x.source==='photo').length;
-  const slots=5-photos;
-  manualRows=manualRows.slice(0,slots);
-  $('manualRows').innerHTML=manualRows.map((r,i)=>`<div class="manual-entry" data-row="${r.rowId}"><div class="manual-head"><strong>Товар №${i+1}</strong>${manualRows.length>2?'<button class="smallbtn dangertext" data-remove-row="'+r.rowId+'">Удалить</button>':''}</div><div class="formgrid"><div><label>Вес / объём</label><input data-field="qty" inputmode="decimal" placeholder="900" value="${esc(r.qty)}"></div><div><label>Цена, ₽</label><input data-field="price" inputmode="decimal" placeholder="109,90" value="${esc(r.price)}"></div></div></div>`).join('');
+  manualRows=manualRows.slice(0,5-photos);
+  $('manualRows').innerHTML=manualRows.map((r,i)=>`<div class="manual-entry" data-row="${r.rowId}"><div class="manual-head"><strong>Товар №${i+1}</strong><span class="winner-badge">★ Лучшая цена</span>${manualRows.length>2?'<button class="smallbtn dangertext" data-remove-row="'+r.rowId+'">Удалить</button>':''}</div><div class="formgrid"><div><label>Вес / объём (${esc(r.unit)})</label><input data-field="qty" inputmode="decimal" placeholder="900" value="${esc(r.qty)}"></div><div><label>Цена, ₽</label><input data-field="price" inputmode="decimal" placeholder="109,90" value="${esc(r.price)}"></div></div><div class="manual-unitprice hidden"></div><div class="winner-reward"></div></div>`).join('');
   $('manualRows').querySelectorAll('[data-row]').forEach(el=>{
     const row=manualRows.find(r=>r.rowId===Number(el.dataset.row));
-    el.querySelectorAll('[data-field]').forEach(input=>input.addEventListener(input.tagName==='SELECT'?'change':'input',()=>{
-      row[input.dataset.field]=input.value;hideWarn();syncManualRow(row);
+    el.querySelectorAll('[data-field]').forEach(input=>input.addEventListener('input',()=>{
+      row[input.dataset.field]=input.value;hideWarn();syncManualRow(row);refreshHighlights();
     }));
   });
   $('manualRows').querySelectorAll('[data-remove-row]').forEach(b=>b.onclick=()=>{
@@ -41,7 +64,7 @@ function renderManual(){
   });
   $('add').disabled=manualRows.length+photos>=5;
   $('capacity').textContent=`${manualRows.length+photos} из 5`;
-  saveManual();
+  saveManual();refreshHighlights();
 }
 $('globalUnit').onchange=()=>{
   const chosen=$('globalUnit').value;
@@ -56,7 +79,7 @@ function syncManualRow(row){
     if(old)Object.assign(old,{qty,price,unit:row.unit});
     else if(items.length<5){const id=nextId++;items.push({id,name:'',characteristics:'',regular:null,promo:null,source:'manual',ack:false,qty,unit:row.unit,price});row.id=id;}
   }else if(old){items=items.filter(x=>x.id!==old.id);row.id=null;}
-  save();saveManual();render();
+  save();saveManual();render();refreshHighlights();
 }
 $('add').onclick=()=>{
   hideWarn();
