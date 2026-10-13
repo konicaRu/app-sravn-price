@@ -1,6 +1,6 @@
 // Online-first PWA: update application files when online, remain usable offline.
-const CACHE='vygodno-v7';
-const ASSETS=['./','./index.html','./app.js','./manifest.webmanifest','./icon.svg'];
+const CACHE='vygodno-v8';
+const ASSETS=['./','./index.html','./app.js?v=8','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)));
   self.skipWaiting();
