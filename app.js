@@ -22,6 +22,20 @@ manualRows.forEach(r=>r.unit=initialUnit);items.forEach(x=>x.unit=initialUnit);
 function saveManual(){localStorage.setItem(ROW_KEY,JSON.stringify(manualRows));}
 function warn(message){$('entryError').textContent=message;$('entryError').classList.remove('hidden');}
 function hideWarn(){$('entryError').classList.add('hidden')}
+// Analytics only sends event names, never quantities, prices or product names.
+function trackUsage(name){if(window.__vygodnoAnalyticsStarted&&typeof window.gtag==='function')window.gtag('event',name);}
+let comparisonTimer=null,lastComparisonSignature='';
+function scheduleComparisonEvent(){
+  clearTimeout(comparisonTimer);
+  const valid=manualRows.filter(r=>parse(r.qty)>0&&parse(r.price)>0);
+  if(valid.length<2)return;
+  const signature=JSON.stringify(valid.map(r=>[r.rowId,r.qty,r.price,r.unit]));
+  if(signature===lastComparisonSignature)return;
+  comparisonTimer=setTimeout(()=>{
+    lastComparisonSignature=signature;
+    trackUsage('comparison_completed');
+  },1800);
+}
 function refreshHighlights(){
   const valid=manualRows.map((r,i)=>({...r,index:i,qtyN:parse(r.qty),priceN:parse(r.price)})).filter(r=>r.qtyN>0&&r.priceN>0);
   const unit=(manualRows[0]?.unit||'г');
@@ -54,7 +68,7 @@ function renderManual(){
   $('manualRows').querySelectorAll('[data-row]').forEach(el=>{
     const row=manualRows.find(r=>r.rowId===Number(el.dataset.row));
     el.querySelectorAll('[data-field]').forEach(input=>input.addEventListener('input',()=>{
-      row[input.dataset.field]=input.value;hideWarn();syncManualRow(row);refreshHighlights();
+      row[input.dataset.field]=input.value;hideWarn();syncManualRow(row);refreshHighlights();scheduleComparisonEvent();
     }));
   });
   $('manualRows').querySelectorAll('[data-remove-row]').forEach(b=>b.onclick=()=>{
@@ -85,6 +99,7 @@ $('add').onclick=()=>{
   hideWarn();
   if(manualRows.length+items.filter(x=>x.source==='photo').length>=5)return warn('Максимум 5 товаров.');
   manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:(manualRows[0]?.unit||'г')||'г',price:''});
+  if(manualRows.length>=3)trackUsage('product_added');
   renderManual();
   $('manualRows').lastElementChild?.querySelector('[data-field="qty"]')?.focus();
 };
@@ -109,8 +124,8 @@ async function recognizePhoto(file){if(manualRows.length+items.filter(x=>x.sourc
 function showReview(d){$('ocrReview').innerHTML=`<h3 style="margin:0 0 10px">Проверь данные ценника</h3><div class="row"><img class="photo" id="reviewPhoto" alt="Фото ценника" src="${pendingPhoto.url}"><span class="muted">Любое поле можно исправить</span></div><div class="stack" style="margin-top:10px"><div><label>Название (необязательно)</label><input id="rName" value="${esc(d.name)}"></div><div class="editorgrid"><div><label>Обычная цена, ₽</label><input id="rRegular" inputmode="decimal" value="${d.regular}"></div><div><label>Цена по карте, ₽</label><input id="rPromo" inputmode="decimal" value="${d.promo}"></div></div><div class="formgrid"><div><label>Вес / объём</label><input id="rQty" inputmode="decimal" value="${d.qty}"></div><div><label>Единица</label><select id="rUnit">${Object.keys(U).map(x=>`<option ${x===d.unit?'selected':''}>${x}</option>`).join('')}</select></div><div><label>Выбор цены</label><select id="rChoice"><option value="promo" ${d.promo?'':'disabled'}>По карте</option><option value="regular" ${d.promo?'':'selected'}>Обычная</option></select></div></div><div><label>Характеристики (если известны)</label><input id="rCharacteristics" placeholder="Например, жирность 2,5%"></div><div id="rValidation"></div><button class="btn" id="confirmPhoto">Добавить товар</button><button class="btn outline" id="cancelPhoto">Отмена</button><details><summary class="muted">Показать исходный распознанный текст</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(d.raw)}</pre></details></div>`;$('ocrReview').classList.remove('hidden');$('reviewPhoto').onclick=()=>{$('modalImage').src=pendingPhoto.url;$('modal').classList.add('show')};$('rRegular').oninput=$('rPromo').oninput=$('rChoice').onchange=$('rQty').oninput=$('rUnit').onchange=validateReview;$('confirmPhoto').onclick=()=>{const q=parse($('rQty').value),regular=parse($('rRegular').value),promo=parse($('rPromo').value),price=$('rChoice').value==='promo'?promo:regular;if(!(q>0&&price>0)){ $('rValidation').innerHTML='<div class="notice">Проверь количество и выбранную цену.</div>';return;}let id=nextId;addItem({name:$('rName').value,qty:q,unit:$('rUnit').value,price,regular:regular>0?regular:null,promo:promo>0?promo:null,characteristics:$('rCharacteristics').value,source:'photo'});images.set(id,pendingPhoto.url);pendingPhoto=null;renderManual();$('ocrReview').classList.add('hidden');$('ocrStatus').textContent='Товар добавлен. Можно добавить следующий.';render();};$('cancelPhoto').onclick=()=>{URL.revokeObjectURL(pendingPhoto.url);pendingPhoto=null;$('ocrReview').classList.add('hidden')};validateReview();}
 function validateReview(){if(!pendingPhoto)return;const d=pendingPhoto.data;let msg=[];let amount=parse($('rQty').value),price=parse($('rChoice').value==='promo'?$('rPromo').value:$('rRegular').value);if(!(amount>0))msg.push('Не определён вес или объём — укажи вручную.');if(!(price>0))msg.push('Не определена выбранная цена — укажи вручную.');if(d.printedUnit&&amount>0&&price>0){let x={qty:amount,unit:$('rUnit').value,price};if(U[x.unit]&&d.printedUnit.unit===unitName(x)){let calculated=per(x);if(Math.abs(calculated-d.printedUnit.value)>Math.max(.1,calculated*.025))msg.push('Цена за единицу на ценнике может не совпадать с расчётом. Проверь данные и вид цены.')}}$('rValidation').innerHTML=msg.map(m=>`<div class="notice">⚠ ${esc(m)}</div>`).join('');}
 function shareString(){return 'Сравнение цен — Выгодно?\n'+items.map((p,i)=>`${i+1}. ${p.name||'Товар №'+(i+1)}: ${fmt(p.qty)} ${p.unit}, ${fmt(p.price)} ₽, ${fmt(per(p))} ₽/${unitName(p)}`).join('\n')+'\n'+($('result').textContent||'');}
-$('shareText').onclick=async()=>{let text=shareString();try{if(navigator.share)await navigator.share({text});else{await navigator.clipboard.writeText(text);alert('Результат скопирован')}}catch(e){if(e.name!=='AbortError')prompt('Скопируй результат',text)}};
-$('shareImage').onclick=async()=>{const c=document.createElement('canvas');c.width=900;c.height=170+items.length*90;const ctx=c.getContext('2d');ctx.fillStyle='#f7faf8';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='#176b47';ctx.font='bold 38px system-ui';ctx.fillText('Выгодно? — сравнение цен',36,60);ctx.fillStyle='#142c21';ctx.font='25px system-ui';items.forEach((p,i)=>{ctx.fillText(`${i+1}. ${(p.name||'Товар №'+(i+1)).slice(0,28)} — ${fmt(p.price)} ₽`,38,120+i*90);ctx.fillStyle='#186d4a';ctx.fillText(`${fmt(p.qty)} ${p.unit}   •   ${fmt(per(p))} ₽/${unitName(p)}`,38,153+i*90);ctx.fillStyle='#142c21';});let blob=await new Promise(r=>c.toBlob(r,'image/png'));const f=new File([blob],'sravnenie-cen.png',{type:'image/png'});try{if(navigator.canShare?.({files:[f]}))await navigator.share({files:[f],title:'Сравнение цен'});else{let a=document.createElement('a');a.download=f.name;a.href=URL.createObjectURL(blob);a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}}catch(e){if(e.name!=='AbortError')alert('Не удалось поделиться картинкой')}};
+$('shareText').onclick=async()=>{trackUsage('result_shared');let text=shareString();try{if(navigator.share)await navigator.share({text});else{await navigator.clipboard.writeText(text);alert('Результат скопирован')}}catch(e){if(e.name!=='AbortError')prompt('Скопируй результат',text)}};
+$('shareImage').onclick=async()=>{trackUsage('result_shared');const c=document.createElement('canvas');c.width=900;c.height=170+items.length*90;const ctx=c.getContext('2d');ctx.fillStyle='#f7faf8';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='#176b47';ctx.font='bold 38px system-ui';ctx.fillText('Выгодно? — сравнение цен',36,60);ctx.fillStyle='#142c21';ctx.font='25px system-ui';items.forEach((p,i)=>{ctx.fillText(`${i+1}. ${(p.name||'Товар №'+(i+1)).slice(0,28)} — ${fmt(p.price)} ₽`,38,120+i*90);ctx.fillStyle='#186d4a';ctx.fillText(`${fmt(p.qty)} ${p.unit}   •   ${fmt(per(p))} ₽/${unitName(p)}`,38,153+i*90);ctx.fillStyle='#142c21';});let blob=await new Promise(r=>c.toBlob(r,'image/png'));const f=new File([blob],'sravnenie-cen.png',{type:'image/png'});try{if(navigator.canShare?.({files:[f]}))await navigator.share({files:[f],title:'Сравнение цен'});else{let a=document.createElement('a');a.download=f.name;a.href=URL.createObjectURL(blob);a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}}catch(e){if(e.name!=='AbortError')alert('Не удалось поделиться картинкой')}};
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js?v=8',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});renderManual();render();
 (function initAnalytics(){
   const consentKey='vygodno-analytics-consent-v1';
