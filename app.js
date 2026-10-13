@@ -24,7 +24,7 @@ function warn(message){$('entryError').textContent=message;$('entryError').class
 function hideWarn(){$('entryError').classList.add('hidden')}
 function refreshHighlights(){
   const valid=manualRows.map((r,i)=>({...r,index:i,qtyN:parse(r.qty),priceN:parse(r.price)})).filter(r=>r.qtyN>0&&r.priceN>0);
-  const unit=$('globalUnit').value;
+  const unit=(manualRows[0]?.unit||'г');
   const comparable=valid.length>=2&&valid.every(r=>r.unit===unit);
   const ranked=comparable?valid.map(r=>({...r,perUnit:r.priceN/(r.qtyN*U[unit][1])*U[unit][3]})).sort((a,b)=>a.perUnit-b.perUnit):[];
   const win=ranked[0],expensive=ranked[ranked.length-1];
@@ -47,7 +47,7 @@ function refreshHighlights(){
   }
 }
 function renderManual(){
-  $('globalUnit').value=manualRows[0]?.unit||'г';
+  document.querySelectorAll('#unitButtons [data-unit]').forEach(btn=>{const active=btn.dataset.unit===(manualRows[0]?.unit||'г');btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));});
   const photos=items.filter(x=>x.source==='photo').length;
   manualRows=manualRows.slice(0,5-photos);
   $('manualRows').innerHTML=manualRows.map((r,i)=>`<div class="manual-entry" data-row="${r.rowId}"><div class="manual-head"><strong>Товар №${i+1}</strong><span class="winner-badge">★ Лучшая цена</span>${manualRows.length>2?'<button class="smallbtn dangertext" data-remove-row="'+r.rowId+'">Удалить</button>':''}</div><div class="formgrid"><div><label>Вес / объём (${esc(r.unit)})</label><input data-field="qty" inputmode="decimal" placeholder="900" value="${esc(r.qty)}"></div><div><label>Цена, ₽</label><input data-field="price" inputmode="decimal" placeholder="109,90" value="${esc(r.price)}"></div></div><div class="manual-unitprice hidden"></div><div class="winner-reward"></div></div>`).join('');
@@ -66,12 +66,12 @@ function renderManual(){
   $('capacity').textContent=`${manualRows.length+photos} из 5`;
   saveManual();refreshHighlights();
 }
-$('globalUnit').onchange=()=>{
-  const chosen=$('globalUnit').value;
+document.querySelectorAll('#unitButtons [data-unit]').forEach(btn=>btn.addEventListener('click',()=>{
+  const chosen=btn.dataset.unit;
   manualRows.forEach(r=>r.unit=chosen);
   items.forEach(x=>x.unit=chosen);
   save();saveManual();renderManual();render();
-};
+}));
 function syncManualRow(row){
   const qty=parse(row.qty),price=parse(row.price);
   const old=items.find(x=>x.id===row.id);
@@ -84,14 +84,14 @@ function syncManualRow(row){
 $('add').onclick=()=>{
   hideWarn();
   if(manualRows.length+items.filter(x=>x.source==='photo').length>=5)return warn('Максимум 5 товаров.');
-  manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:$('globalUnit').value||'г',price:''});
+  manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:(manualRows[0]?.unit||'г')||'г',price:''});
   renderManual();
   $('manualRows').lastElementChild?.querySelector('[data-field="qty"]')?.focus();
 };
 $('clear').onclick=()=>{
   if(!items.length||confirm('Очистить все товары и начать новое сравнение?')){
     items=[];images.clear();pendingPhoto=null;manualRows=[];
-    while(manualRows.length<2)manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:$('globalUnit').value||'г',price:''});
+    while(manualRows.length<2)manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:(manualRows[0]?.unit||'г')||'г',price:''});
     save();saveManual();renderManual();render();$('ocrReview').classList.add('hidden');$('ocrStatus').textContent='Один снимок — один ценник.';
   }
 };
