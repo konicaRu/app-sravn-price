@@ -23,20 +23,15 @@ function saveManual(){localStorage.setItem(ROW_KEY,JSON.stringify(manualRows));}
 function warn(message){$('entryError').textContent=message;$('entryError').classList.remove('hidden');}
 function hideWarn(){$('entryError').classList.add('hidden')}
 function renderManual(){
+  $('globalUnit').value=manualRows[0]?.unit||'г';
   const photos=items.filter(x=>x.source==='photo').length;
   const slots=5-photos;
   manualRows=manualRows.slice(0,slots);
-  $('manualRows').innerHTML=manualRows.map((r,i)=>`<div class="manual-entry" data-row="${r.rowId}"><div class="manual-head"><strong>Товар №${i+1}</strong>${manualRows.length>2?'<button class="smallbtn dangertext" data-remove-row="'+r.rowId+'">Удалить</button>':''}</div><div class="formgrid"><div><label>Вес / объём</label><input data-field="qty" inputmode="decimal" placeholder="900" value="${esc(r.qty)}"></div><div><label>Ед.</label><select data-field="unit">${Object.keys(U).map(u=>`<option value="${u}" ${r.unit===u?'selected':''}>${u}</option>`).join('')}</select></div><div><label>Цена, ₽</label><input data-field="price" inputmode="decimal" placeholder="109,90" value="${esc(r.price)}"></div></div></div>`).join('');
+  $('manualRows').innerHTML=manualRows.map((r,i)=>`<div class="manual-entry" data-row="${r.rowId}"><div class="manual-head"><strong>Товар №${i+1}</strong>${manualRows.length>2?'<button class="smallbtn dangertext" data-remove-row="'+r.rowId+'">Удалить</button>':''}</div><div class="formgrid"><div><label>Вес / объём</label><input data-field="qty" inputmode="decimal" placeholder="900" value="${esc(r.qty)}"></div><div><label>Цена, ₽</label><input data-field="price" inputmode="decimal" placeholder="109,90" value="${esc(r.price)}"></div></div></div>`).join('');
   $('manualRows').querySelectorAll('[data-row]').forEach(el=>{
     const row=manualRows.find(r=>r.rowId===Number(el.dataset.row));
     el.querySelectorAll('[data-field]').forEach(input=>input.addEventListener(input.tagName==='SELECT'?'change':'input',()=>{
-      row[input.dataset.field]=input.value;hideWarn();
-      if(input.dataset.field==='unit'){
-        const chosen=input.value;
-        manualRows.forEach(r=>{r.unit=chosen;const linked=items.find(x=>x.id===r.id);if(linked)linked.unit=chosen;});
-        items.forEach(x=>x.unit=chosen);
-        save();saveManual();renderManual();render();
-      } else syncManualRow(row);
+      row[input.dataset.field]=input.value;hideWarn();syncManualRow(row);
     }));
   });
   $('manualRows').querySelectorAll('[data-remove-row]').forEach(b=>b.onclick=()=>{
@@ -48,6 +43,12 @@ function renderManual(){
   $('capacity').textContent=`${manualRows.length+photos} из 5`;
   saveManual();
 }
+$('globalUnit').onchange=()=>{
+  const chosen=$('globalUnit').value;
+  manualRows.forEach(r=>r.unit=chosen);
+  items.forEach(x=>x.unit=chosen);
+  save();saveManual();renderManual();render();
+};
 function syncManualRow(row){
   const qty=parse(row.qty),price=parse(row.price);
   const old=items.find(x=>x.id===row.id);
@@ -60,14 +61,14 @@ function syncManualRow(row){
 $('add').onclick=()=>{
   hideWarn();
   if(manualRows.length+items.filter(x=>x.source==='photo').length>=5)return warn('Максимум 5 товаров.');
-  manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:manualRows.at(-1)?.unit||'г',price:''});
+  manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:$('globalUnit').value||'г',price:''});
   renderManual();
   $('manualRows').lastElementChild?.querySelector('[data-field="qty"]')?.focus();
 };
 $('clear').onclick=()=>{
   if(!items.length||confirm('Очистить все товары и начать новое сравнение?')){
     items=[];images.clear();pendingPhoto=null;manualRows=[];
-    while(manualRows.length<2)manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:'г',price:''});
+    while(manualRows.length<2)manualRows.push({rowId:nextRowId++,id:null,qty:'',unit:$('globalUnit').value||'г',price:''});
     save();saveManual();renderManual();render();$('ocrReview').classList.add('hidden');$('ocrStatus').textContent='Один снимок — один ценник.';
   }
 };
